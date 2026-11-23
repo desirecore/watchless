@@ -168,6 +168,8 @@ def build_share(manifest_path: Path, notes_dir: Path, output_root: Path, no_zip:
                 "--headless=new",
                 "--disable-gpu",
                 "--disable-background-networking",
+                "--no-first-run",
+                "--use-mock-keychain",
                 f"--user-data-dir={profile}",
                 "--allow-file-access-from-files",
                 f"--print-to-pdf={pdf_path}",
