@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from video_notes_common import emit_progress, format_timestamp, make_contact_sheet, read_json
+from video_notes_common import emit_progress, format_timestamp, make_contact_sheet, read_json, require_commands
 
 
 NOTE_SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
@@ -120,6 +121,10 @@ def _find_chrome() -> Path | None:
 
 
 def build_share(manifest_path: Path, notes_dir: Path, output_root: Path, no_zip: bool = False) -> dict[str, Any]:
+    require_commands("pandoc", "pdftoppm")
+    chrome = _find_chrome()
+    if not chrome:
+        raise RuntimeError("Google Chrome or Chromium is required for PDF output")
     manifest = read_json(manifest_path)
     notes = load_notes(notes_dir)
     scene_ids = {int(scene["id"]) for scene in manifest.get("scenes") or []}
@@ -156,34 +161,31 @@ def build_share(manifest_path: Path, notes_dir: Path, output_root: Path, no_zip:
     emit_progress("html", "complete", output=str(html_path))
 
     pdf_path = share / f"{safe_name}-visual-explainer.pdf"
-    chrome = _find_chrome()
-    if not chrome:
-        raise RuntimeError("Google Chrome or Chromium is required for PDF output")
-    subprocess.run(
-        [
-            str(chrome),
-            "--headless=new",
-            "--disable-gpu",
-            "--allow-file-access-from-files",
-            f"--print-to-pdf={pdf_path}",
-            "--no-pdf-header-footer",
-            html_path.resolve().as_uri(),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    with tempfile.TemporaryDirectory(prefix="watchless-chrome-") as profile:
+        subprocess.run(
+            [
+                str(chrome),
+                "--headless=new",
+                "--disable-gpu",
+                "--disable-background-networking",
+                f"--user-data-dir={profile}",
+                "--allow-file-access-from-files",
+                f"--print-to-pdf={pdf_path}",
+                "--no-pdf-header-footer",
+                html_path.resolve().as_uri(),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     emit_progress("pdf", "complete", output=str(pdf_path))
 
-    pdftoppm = shutil.which("pdftoppm")
-    if not pdftoppm:
-        raise RuntimeError("Poppler pdftoppm is required for PDF visual verification")
     pdf_pages = output_root / "verify" / "pdf-pages"
     if pdf_pages.exists():
         shutil.rmtree(pdf_pages)
     pdf_pages.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        [pdftoppm, "-png", "-r", "90", str(pdf_path), str(pdf_pages / "page")],
+        ["pdftoppm", "-png", "-r", "90", str(pdf_path), str(pdf_pages / "page")],
         check=True,
         capture_output=True,
     )

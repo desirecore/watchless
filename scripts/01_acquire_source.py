@@ -20,6 +20,7 @@ from video_notes_common import (
     normalize_display_text,
     probe_video,
     read_json,
+    require_commands,
     source_fingerprint,
     write_json,
 )
@@ -43,6 +44,7 @@ def build_ytdlp_attempts(
 ) -> list[list[str]]:
     args = [
         "yt-dlp",
+        "--ignore-config",
         "--no-playlist",
         "--js-runtimes",
         "node",
@@ -68,7 +70,9 @@ def build_ytdlp_attempts(
 
 def classify_ytdlp_error(stderr: str) -> str:
     normalized = stderr.lower()
-    if "sign in" in normalized or "not a bot" in normalized or "login required" in normalized:
+    if "not a bot" in normalized or "captcha" in normalized:
+        return "access_check"
+    if "sign in" in normalized or "login required" in normalized:
         return "login_required"
     if "429" in normalized or "too many requests" in normalized or "rate limit" in normalized:
         return "rate_limited"
@@ -105,7 +109,7 @@ def acquire(
     work_dir: Path,
     max_height: int = 1080,
     language: str = "zh",
-    cookies_from_browser: str | None = "chrome",
+    cookies_from_browser: str | None = None,
 ) -> dict[str, Any]:
     local = Path(source).expanduser()
     source_dir = work_dir / "source"
@@ -144,20 +148,18 @@ def acquire(
     if not video_id:
         raise ValueError("Input is neither a local video nor a supported YouTube URL")
 
+    require_commands("yt-dlp", "node")
     template = source_dir / "%(title)s-%(id)s.%(ext)s"
-    errors: list[tuple[str, str]] = []
-    for index, command in enumerate(
-        build_ytdlp_attempts(source, template, max_height, language, cookies_from_browser), start=1
-    ):
-        emit_progress("download", "running", completed=index - 1, total=2, attempt=index)
+    attempts = build_ytdlp_attempts(source, template, max_height, language, cookies_from_browser)
+    for index, command in enumerate(attempts, start=1):
+        emit_progress("download", "running", completed=index - 1, total=len(attempts), attempt=index)
         completed = subprocess.run(command, capture_output=True, text=True)
         if completed.returncode == 0 and _media_candidates(source_dir):
             break
-        errors.append((classify_ytdlp_error(completed.stderr), completed.stderr[-2000:]))
-    else:
-        code = errors[-1][0] if errors else "download_failed"
-        detail = errors[-1][1] if errors else "yt-dlp did not return an error message"
-        raise RuntimeError(f"YOUTUBE_{code.upper()}: {detail}")
+        code = classify_ytdlp_error(completed.stderr)
+        if code != "login_required" or index == len(attempts):
+            detail = completed.stderr[-2000:] or "yt-dlp did not return an error message"
+            raise RuntimeError(f"YOUTUBE_{code.upper()}: {detail}")
 
     video = _media_candidates(source_dir)[0]
     info_path = next(iter(source_dir.glob(f"*{video_id}*.info.json")), None)
@@ -173,12 +175,12 @@ def acquire(
         "local_video": str(video.resolve()),
         "subtitle": str(subtitles[0].resolve()) if subtitles else None,
         "info_json": str(info_path.resolve()) if info_path else None,
-        "download_method": "yt-dlp-browser" if errors else "yt-dlp-anonymous",
+        "download_method": "yt-dlp-browser" if index > 1 else "yt-dlp-anonymous",
         "fingerprint": source_fingerprint(video),
         **metadata,
     }
     write_json(work_dir / "acquisition.json", result)
-    emit_progress("download", "complete", completed=2, total=2, output=str(video))
+    emit_progress("download", "complete", completed=index, total=index, output=str(video))
     return result
 
 
@@ -188,7 +190,7 @@ def main() -> None:
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--max-height", type=int, default=1080)
     parser.add_argument("--lang", default="zh")
-    parser.add_argument("--cookies-from-browser", default="chrome")
+    parser.add_argument("--cookies-from-browser", help="Opt in to browser cookies after a login-required error")
     parser.add_argument("--no-browser-cookies", action="store_true")
     args = parser.parse_args()
     result = acquire(

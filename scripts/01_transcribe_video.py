@@ -11,11 +11,14 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import uuid
 from pathlib import Path
 
 import requests
 from moviepy.video.io.VideoFileClip import VideoFileClip
+
+from video_notes_common import require_cloud_upload
 
 
 DEFAULT_RECOGNIZE_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash"
@@ -360,17 +363,14 @@ class AudioTranscriber:
             "RESOURCE_ID", default=DEFAULT_RESOURCE_ID
         )
         self.timeout = timeout
-        self.cache_dir = Path(__file__).resolve().parent / ".audiocache"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self._audio_workspace = None
 
     def extract_audio_from_video(self, video_path):
-        """Extract a compact mono MP3 from video and reuse it on later runs."""
+        """Extract the current video into an isolated temporary directory."""
         video_path = Path(video_path)
-        cached_path = self.cache_dir / f"{video_path.stem}.mp3"
-        if cached_path.exists():
-            print(f"Using cached audio: {cached_path}")
-            return str(cached_path)
-
+        if self._audio_workspace is None:
+            self._audio_workspace = tempfile.TemporaryDirectory(prefix="watchless-audio-")
+        cached_path = Path(self._audio_workspace.name) / f"{video_path.stem}.mp3"
         print(f"Extracting audio: {video_path} -> {cached_path}")
         clip = VideoFileClip(str(video_path))
         try:
@@ -418,8 +418,11 @@ class AudioTranscriber:
             headers["X-Api-Key"] = self.api_key
         return headers
 
-    def recognize_audio(self, audio_path, lang="zh-CN", punctuation=True, show_utterances=True):
+    def recognize_audio(
+        self, audio_path, lang="zh-CN", punctuation=True, show_utterances=True, *, confirm_cloud_upload=False
+    ):
         """Send local audio as Base64 and return the synchronous Flash result."""
+        require_cloud_upload(confirm_cloud_upload, "Volcengine ASR")
         audio_path = Path(audio_path)
         file_size = audio_path.stat().st_size
         if file_size > MAX_AUDIO_BYTES:
@@ -504,7 +507,9 @@ class LocalWhisperTranscriber(AudioTranscriber):
         self.device = device
         self.whisper_module = whisper_module
 
-    def recognize_audio(self, audio_path, lang=None, punctuation=True, show_utterances=True):
+    def recognize_audio(
+        self, audio_path, lang=None, punctuation=True, show_utterances=True, *, confirm_cloud_upload=False
+    ):
         del punctuation  # Whisper handles punctuation as part of decoding.
         whisper_module = self.whisper_module or importlib.import_module("whisper")
         load_kwargs = {}
@@ -576,10 +581,21 @@ def main():
         default=getattr(config, "DEFAULT_LANGUAGE", "zh-CN"),
         help="Language code, for example zh-CN or en-US",
     )
+    parser.add_argument(
+        "--confirm-cloud-upload", action="store_true",
+        help="Confirm that the user agreed to send this audio to the selected cloud provider and accepts its charges",
+    )
     parser.add_argument("--no-punctuation", action="store_true")
     parser.add_argument("--no-utterances", action="store_true")
     parser.add_argument("--timeout", type=int, default=1800, help="HTTP timeout in seconds")
     args = parser.parse_args()
+
+    if args.provider != "whisper":
+        provider_name = "Volcengine ASR" if args.provider == "volcengine" else "Tencent Cloud ASR"
+        try:
+            require_cloud_upload(args.confirm_cloud_upload, provider_name)
+        except RuntimeError as exc:
+            parser.error(str(exc))
 
     api_key, app_key, credential_source = None, None, None
     if args.provider == "volcengine":
@@ -615,6 +631,7 @@ def main():
             lang=args.lang,
             punctuation=not args.no_punctuation,
             show_utterances=not args.no_utterances,
+            confirm_cloud_upload=args.confirm_cloud_upload,
         )
         save_transcript(result, args.output, args.srt_output)
         if args.json_output:

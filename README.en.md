@@ -108,7 +108,7 @@ Only the `slides` route uses visual comparison: it recalls ffmpeg keyframes, the
 ## Install
 
 ```bash
-git clone https://github.com/chenzixin1/watchless.git
+git clone --branch desirecore https://github.com/desirecore/watchless.git
 cd watchless
 
 python3 -m venv .venv
@@ -120,8 +120,11 @@ System dependencies:
 
 - `ffmpeg` and `ffprobe`
 - `yt-dlp`
-- Google Chrome, for HTML-to-PDF conversion
-- A locally accessible `video-use` Skill, for transcript packing and targeted timeline inspection
+- Python 3.10+
+- Pandoc, Poppler (`pdftoppm`), and Chrome or Chromium in `/Applications` for HTML/PDF/ZIP output on macOS
+- Node.js for YouTube input
+
+The transcript packing and timeline helpers ship with this fork. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Local Whisper is an explicit fallback only; it never silently replaces Tencent Cloud ASR:
 
@@ -154,9 +157,9 @@ Never commit real API keys, browser cookies, downloaded videos, raw transcripts,
 
 ### Private-use and legal limits
 
-- Chrome cookies may be read transiently only from the local browser profile; never export, print, upload, or commit them.
+- Browser cookies are off by default. After explicit consent, `--cookies-from-browser chrome` permits a retry after a login-required error; never export, print, upload, or commit them.
 - Do not use this project to bypass DRM, paywalls, membership limits, private access, regional restrictions, CAPTCHAs, or other access controls.
-- The default Tencent Cloud ASR sends audio to a third-party service. Confirm authorization before sending confidential or sensitive material; explicitly use local Whisper when appropriate.
+- Tencent Cloud and Volcengine ASR send audio to a third-party service and may charge separately. Obtain the user’s approval for the current audio and provider before adding `--confirm-cloud-upload`. Use existing subtitles or local Whisper for offline processing.
 - Speaker names require reliable public evidence. When a speaker cannot be verified, retain `Speaker N`; do not perform face or voice biometric identification.
 - Before publishing or using material commercially, independently review the platform terms, copyright, privacy, confidentiality, and attribution requirements.
 
@@ -171,8 +174,10 @@ The entire workflow runs locally in Codex and does not depend on the PodSum webs
 ```bash
 .venv/bin/python scripts/00_build_video_notes.py \
   "https://www.youtube.com/watch?v=VIDEO_ID" \
-  --stage prepare
+  --stage prepare --use-source-subtitles
 ```
+
+This example uses existing subtitles. For approved Tencent transcription, replace `--use-source-subtitles` with `--provider tencent --confirm-cloud-upload`.
 
 The command prints `PROJECT_DIR` and generates:
 

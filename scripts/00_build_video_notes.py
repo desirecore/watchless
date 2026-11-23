@@ -5,9 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -17,10 +15,13 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from video_notes_common import (
+    VIDEO_USE_HELPERS,
     emit_progress,
     extract_video_id,
     parse_transcript_file,
     read_json,
+    require_cloud_upload,
+    require_commands,
     safe_slug,
     write_json,
     write_timestamped_transcript,
@@ -81,20 +82,6 @@ def relocate_acquisition_paths(acquisition: dict, work: Path) -> dict:
     return acquisition
 
 
-def resolve_video_use_skill() -> Path:
-    candidates = [
-        Path(os.environ.get("VIDEO_USE_SKILL_DIR", "")).expanduser(),
-        Path("/Volumes/1TB/1Tprojects/video use"),
-        Path.home() / ".codex" / "skills" / "video-use",
-    ]
-    for candidate in candidates:
-        if candidate and (candidate / "helpers" / "pack_transcripts.py").is_file():
-            return candidate.resolve()
-    raise RuntimeError(
-        "video-use helpers were not found. Set VIDEO_USE_SKILL_DIR to the directory containing its SKILL.md."
-    )
-
-
 def cues_to_word_transcript(cues: list[dict]) -> dict:
     """Adapt timestamped subtitles to the video-use transcript schema."""
     words = []
@@ -124,14 +111,13 @@ def cues_to_word_transcript(cues: list[dict]) -> dict:
     }
 
 
-def build_packed_transcript(work: Path, transcript_json: Path) -> Path:
-    video_use = resolve_video_use_skill()
+def build_packed_transcript(work: Path) -> Path:
     edit_dir = work / "video-use"
     packed = edit_dir / "takes_packed.md"
     subprocess.run(
         [
             sys.executable,
-            str(video_use / "helpers" / "pack_transcripts.py"),
+            str(VIDEO_USE_HELPERS / "pack_transcripts.py"),
             "--edit-dir",
             str(edit_dir),
         ],
@@ -143,6 +129,10 @@ def build_packed_transcript(work: Path, transcript_json: Path) -> Path:
 
 
 def prepare(source: str, output_root: Path, args: argparse.Namespace) -> Path:
+    require_commands("ffmpeg", "ffprobe")
+    for name in ("pack_transcripts.py", "timeline_view.py"):
+        if not (VIDEO_USE_HELPERS / name).is_file():
+            raise RuntimeError(f"Bundled {name} is missing. Reinstall Watchless before processing media.")
     project = resolve_initial_project(source, output_root)
     work = project / "work"
     verify = project / "verify"
@@ -183,6 +173,11 @@ def prepare(source: str, output_root: Path, args: argparse.Namespace) -> Path:
                 encoding="utf-8",
             )
     if not transcript.is_file() or not transcript_json.is_file():
+        if args.use_source_subtitles:
+            raise RuntimeError("No readable source subtitles were found. Supply subtitles or select a transcription provider.")
+        if args.provider != "whisper":
+            provider = "Volcengine ASR" if args.provider == "volcengine" else "Tencent Cloud ASR"
+            require_cloud_upload(args.confirm_cloud_upload, provider)
         command = [
             sys.executable,
             str(SCRIPT_DIR / "01_transcribe_video.py"),
@@ -194,10 +189,12 @@ def prepare(source: str, output_root: Path, args: argparse.Namespace) -> Path:
             "--json-output",
             str(transcript_json),
         ]
+        if args.confirm_cloud_upload:
+            command.append("--confirm-cloud-upload")
         subprocess.run(command, check=True)
     if not transcript_json.is_file():
         raise RuntimeError("Word-level transcript JSON is missing")
-    packed_transcript = build_packed_transcript(work, transcript_json)
+    packed_transcript = build_packed_transcript(work)
     evidence = OVERVIEW.prepare_overview(Path(acquisition["local_video"]), verify, args.mode_samples)
     state = {
         "source": source,
@@ -336,7 +333,6 @@ def prepare_timeline(project: Path, mode: str, args: argparse.Namespace) -> dict
         work,
         packed_transcript=Path(state["packed_transcript"]),
         transcript_json=Path(state["transcript_json"]),
-        video_use_dir=resolve_video_use_skill(),
         conversation_profile=route.get("conversation_profile"),
         source_chapters=source_chapters(acquisition),
     )
@@ -402,7 +398,7 @@ def main() -> None:
     parser.add_argument("--slide-threshold", type=float, default=0.90)
     parser.add_argument("--lang", default="zh")
     parser.add_argument("--max-height", type=int, default=1080)
-    parser.add_argument("--cookies-from-browser", default="chrome")
+    parser.add_argument("--cookies-from-browser", help="Opt in to browser cookies after a login-required error")
     parser.add_argument("--no-browser-cookies", action="store_true")
     parser.add_argument(
         "--use-source-subtitles",
@@ -410,6 +406,10 @@ def main() -> None:
         help="Use supplied/manual subtitles instead of the default Tencent transcription",
     )
     parser.add_argument("--provider", choices=["auto", "tencent", "volcengine", "whisper"], default="tencent")
+    parser.add_argument(
+        "--confirm-cloud-upload", action="store_true",
+        help="Confirm that the user agreed to send this source audio to the selected cloud provider and accepts its charges",
+    )
     parser.add_argument("--mode-samples", type=int, default=16)
     parser.add_argument(
         "--target-seconds",
@@ -434,7 +434,10 @@ def main() -> None:
     if args.stage == "prepare":
         if not args.source:
             parser.error("source is required for --stage prepare")
-        project = prepare(args.source, args.output_root.resolve(), args)
+        try:
+            project = prepare(args.source, args.output_root.resolve(), args)
+        except (RuntimeError, ValueError) as exc:
+            parser.error(str(exc))
         print(f"PROJECT_DIR={project.resolve()}")
         return
     if not args.project_dir:

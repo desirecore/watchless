@@ -1,6 +1,8 @@
 ---
 name: watchless
 description: 将 YouTube 链接或本地的 PPT、科普、访谈、播客、产品演示视频转换成完整的截图型笔记、忠实轻度润色文本、HTML、PDF 或分享 ZIP。
+requires:
+  bins: [python3, ffmpeg, ffprobe, pandoc, pdftoppm]
 ---
 
 # Watchless 中文审阅版
@@ -11,11 +13,25 @@ description: 将 YouTube 链接或本地的 PPT、科普、访谈、播客、产
 
 把一段视频转换成完整的图文文章。转录稿是事实来源，截图负责保存视觉证据。读者不应再需要观看原视频。
 
+## 环境准备
+
+这是由 DesireCore 维护的 [chenzixin1/watchless](https://github.com/chenzixin1/watchless) fork。市场安装技能文件。完整流程需要 macOS、Python 3.10+、ffmpeg/ffprobe、Pandoc、Poppler（`pdftoppm`），以及装在 `/Applications` 下的 Chrome 或 Chromium。YouTube 输入还需要 yt-dlp 和 Node.js。处理前按所选输入和输出检查依赖。
+
+把 `SKILL_DIR` 设为技能安装目录，虚拟环境放在技能目录之外，便于更新：
+
+```bash
+python3 -m venv "$HOME/.cache/watchless/venv"
+WATCHLESS_PYTHON="$HOME/.cache/watchless/venv/bin/python"
+"$WATCHLESS_PYTHON" -m pip install -r "$SKILL_DIR/scripts/requirements.txt"
+```
+
+两个时间线辅助脚本已随包提供。使用本地 Whisper 时，在同一个环境安装 `scripts/requirements-whisper.txt` 并准备模型。使用云转写时，在技能目录外配置凭据，腾讯云和火山引擎均需单独开通账号、服务权限与计费。
+
 ## 硬性要求
 
 - 全程本地运行，不调用 PodSum、网站、MCP、Cloudflare、APIFY、D1 或 R2。
 - 原视频不可变，重复运行必须复用已经下载的视频和转录稿。
-- 默认使用腾讯云词级 ASR 和说话人分离（`--provider tencent`，`auto` 同样选择腾讯）；失败不得自动切换火山，其他通道必须显式指定，不得静默替换成 YouTube 自动字幕或本地 Whisper。
+- 用户选择腾讯云时，使用词级 ASR 和说话人分离（`--provider tencent`，`auto` 同样选择腾讯）；失败不得自动切换火山，其他通道必须显式指定，不得静默替换成 YouTube 自动字幕或本地 Whisper。
 - 内容必须按原顺序完整保留。Light-plus 不是摘要：保留推理、例子、数字、限定条件、分歧、问答和重复强调。
 - 运行过程中展示全片路由概览、边界证据、候选帧、最终帧和 PDF 页面概览。
 - 本 Skill 任何路径都不使用 OpenCV。
@@ -29,9 +45,9 @@ description: 将 YouTube 链接或本地的 PPT、科普、访谈、播客、产
 获取远程来源前，必须确认用户拥有该内容、已经得到处理授权，或已经独立确认存在其他合法依据。授权不明确时应停止下载，请用户提供已获授权的本地文件。
 
 - 本仓库及其输出默认保持私人。未经单独完成版权、隐私、保密和署名复核，不得公开发布或分发生成结果。
-- Chrome Cookie 只能从用户本机浏览器配置中读取；不得导出、打印、复制、上传、写入日志或提交到 Git。能够读取 Cookie 不代表拥有下载或再利用权。
+- 浏览器 Cookie 默认关闭。用户明确同意使用本机浏览器配置后，才可传入 `--cookies-from-browser chrome`；不得导出、打印、复制、上传、写入日志或提交到 Git。能够读取 Cookie 不代表拥有下载或再利用权。
 - 不得使用本 Skill 绕过 DRM、付费墙、会员限制、私人视频权限、地区限制、验证码、账号处罚或其他访问控制。
-- 把未公开或敏感音频发送给选定云 ASR 服务前，必须确认用户有权进行该第三方传输。无法确认时，改用用户显式要求的本地 Whisper，或停止处理。
+- 每次云转写前都要说明服务商、将上传当前来源的音频以及可能单独计费，向用户确认。仅在用户针对本次来源和服务商同意后，才传入 `--confirm-cloud-upload`。无法确认时，使用已有字幕、用户显式要求的本地 Whisper，或停止。
 - 说话人姓名只能依据明确的公开元数据、自我介绍、姓名条或同等可靠证据；不得进行人脸或声纹生物识别。无法确认时保留 `说话人N`，对外使用前必须人工复核。
 - 经批准对外使用时，只保留实现说明目的所必要的截图和引文。未经单独法律审查，不得发布足以替代原内容的完整转录或完整图文复刻。
 
@@ -84,15 +100,17 @@ Codex 必须先直接查看 `verify/mode-overview.jpg` 和转录稿，再选择�
 ### 1. 下载、转录和全片检查
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" "$SOURCE" --stage prepare
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" "$SOURCE" --stage prepare --use-source-subtitles
 ```
+
+示例使用现有字幕。本地 Whisper 使用 `--provider whisper` 替换字幕参数。用户同意云转写后，使用 `--provider tencent --confirm-cloud-upload`，或显式选择火山引擎。
 
 从输出读取 `PROJECT_DIR`。展示 `verify/mode-overview.jpg`，结合转录稿和来源信息，根据视频真实结构选择路径。
 
 ### 2. 确认路径和视觉策略
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage route --project-dir "$PROJECT_DIR" \
   --mode explainer \
   --visual-strategy dense-visual \
@@ -105,7 +123,7 @@ Codex 必须先直接查看 `verify/mode-overview.jpg` 和转录稿，再选择�
 Bloomberg 式新闻采访示例：
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage route --project-dir "$PROJECT_DIR" \
   --mode conversation --conversation-profile news \
   --visual-strategy speaker --visual-strategy evidence \
@@ -117,7 +135,7 @@ Bloomberg 式新闻采访示例：
 Slides 不走语义时间线。如果 PPT 只占画面的一部分，直接查看概览图并传入相对裁剪区域：
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage scenes --project-dir "$PROJECT_DIR" --mode auto \
   --slide-rect "0.04,0.08,0.72,0.92"
 ```
@@ -131,11 +149,11 @@ Slides 不走语义时间线。如果 PPT 只占画面的一部分，直接查�
 先准备音频优先的语义边界材料：
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage timeline --project-dir "$PROJECT_DIR" --mode auto
 ```
 
-阅读 `work/video-use/takes_packed.md` 和 `work/timeline/boundary-review.md`。只在完整语句和语义转折处提出边界。对每个真实决策点 `T`，使用 `video-use/helpers/timeline_view.py` 查看约 `T-4s` 到 `T+4s`；禁止固定间隔扫描整段视频。
+阅读 `work/video-use/takes_packed.md` 和 `work/timeline/boundary-review.md`。只在完整语句和语义转折处提出边界。对每个真实决策点 `T`，使用 `work/timeline/timeline-evidence.json` 中的 `timeline_view` 路径 查看约 `T-4s` 到 `T+4s`；禁止固定间隔扫描整段视频。
 
 来源存在官方章节时，时间线阶段会生成 `work/timeline/chapter-hints.json`。章节只作为粗略主题建议；必须根据完整问题、回答、例子和限定条件进行合并或拆分。
 
@@ -148,7 +166,7 @@ Slides 不走语义时间线。如果 PPT 只占画面的一部分，直接查�
 最后一个边界必须覆盖最后一句转录。然后生成场景：
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage scenes --project-dir "$PROJECT_DIR" --mode auto \
   --boundaries "$PROJECT_DIR/work/timeline/scene-boundaries.json"
 ```
@@ -162,7 +180,7 @@ Slides 不走语义时间线。如果 PPT 只占画面的一部分，直接查�
 默认候选合适时：
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage select --project-dir "$PROJECT_DIR"
 ```
 
@@ -183,7 +201,7 @@ Slides 不走语义时间线。如果 PPT 只占画面的一部分，直接查�
 ### 6. 生成完整场景稿
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage batches --project-dir "$PROJECT_DIR"
 ```
 
@@ -192,7 +210,7 @@ Slides 不走语义时间线。如果 PPT 只占画面的一部分，直接查�
 运行时能够报告真实模型用量时，在每个高 Token 阶段后追加记录。只有提供当前明确费率时才计算成本：
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage usage --project-dir "$PROJECT_DIR" \
   --usage-stage notes --model-name "$MODEL" \
   --input-tokens "$INPUT_TOKENS" --output-tokens "$OUTPUT_TOKENS" \
@@ -205,7 +223,7 @@ Slides 不走语义时间线。如果 PPT 只占画面的一部分，直接查�
 ### 7. 构建并验证产物
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage finalize --project-dir "$PROJECT_DIR"
 ```
 
@@ -213,7 +231,7 @@ Finalize 会自动生成 `verify/quality-audit.json` 和 `verify/quality-audit.m
 
 ## 回退策略
 
-通过合规闸门后，YouTube 先匿名运行 `yt-dlp`，再使用本机 Chrome 浏览器 Cookie，但不导出 Cookie，也不得借此规避访问控制。火山凭据可以从环境变量、`scripts/config.py` 或 `WATCHLESS_VOLCENGINE_CONFIG` 发现；不得打印或复制凭据。只有显式 `--use-source-subtitles` 才使用来源/人工字幕；只有显式 `--provider whisper` 才使用本地 Whisper。仍无法下载时，说明错误分类并请求已获授权的本地视频。
+通过合规闸门后，YouTube 先匿名运行 `yt-dlp`。只有遇到需要登录的错误且用户显式同意，才使用本机浏览器 Cookie。不得导出 Cookie 或借此规避访问控制。火山凭据可以从环境变量、`scripts/config.py` 或 `WATCHLESS_VOLCENGINE_CONFIG` 发现；不得打印或复制凭据。只有显式 `--use-source-subtitles` 才使用来源/人工字幕；只有显式 `--provider whisper` 才使用本地 Whisper。仍无法下载时，说明错误分类并请求已获授权的本地视频。
 
 所有阶段都可重复执行和断点续跑。`--target-seconds` 只是非 slides 模式的旧兼容回退，绝不是正常切分方法。
 

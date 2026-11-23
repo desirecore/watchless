@@ -12,7 +12,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from video_notes_common import parse_transcript_file, probe_video, read_json, write_json
+from video_notes_common import VIDEO_USE_HELPERS, parse_transcript_file, probe_video, read_json, write_json
 
 
 MODE_BOUNDARY_RULES = {
@@ -29,7 +29,6 @@ def prepare_timeline(
     work_dir: Path,
     packed_transcript: Path | None = None,
     transcript_json: Path | None = None,
-    video_use_dir: Path | None = None,
     conversation_profile: str | None = None,
     source_chapters: list[dict] | None = None,
 ) -> dict:
@@ -44,8 +43,9 @@ def prepare_timeline(
         raise ValueError("video-use takes_packed.md is required")
     if not transcript_json or not transcript_json.is_file():
         raise ValueError("video-use-compatible word transcript JSON is required")
-    if not video_use_dir or not (video_use_dir / "helpers" / "timeline_view.py").is_file():
-        raise ValueError("video-use timeline_view.py is required")
+    timeline_view = VIDEO_USE_HELPERS / "timeline_view.py"
+    if not timeline_view.is_file():
+        raise ValueError("Bundled timeline_view.py is missing. Reinstall Watchless.")
 
     timeline_dir = work_dir / "timeline"
     verify_dir = work_dir.parent / "verify" / "boundary-timelines"
@@ -95,7 +95,7 @@ def prepare_timeline(
         "transcript_json": str(transcript_json.resolve()),
         "worksheet": str(worksheet.resolve()),
         "boundary_verify_dir": str(verify_dir.resolve()),
-        "timeline_view": str((video_use_dir / "helpers" / "timeline_view.py").resolve()),
+        "timeline_view": str(timeline_view),
         "video": str(video.resolve()),
         "final_cue_end_sec": float(cues[-1]["end_sec"]),
         "conversation_profile": conversation_profile if mode == "conversation" else None,
@@ -114,7 +114,6 @@ def main() -> None:
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--packed-transcript", type=Path, required=True)
     parser.add_argument("--transcript-json", type=Path, required=True)
-    parser.add_argument("--video-use-dir", type=Path, required=True)
     parser.add_argument(
         "--conversation-profile",
         choices=["general", "studio", "edited", "news", "chaptered"],
@@ -133,7 +132,6 @@ def main() -> None:
                 args.work_dir.resolve(),
                 args.packed_transcript.resolve(),
                 args.transcript_json.resolve(),
-                args.video_use_dir.resolve(),
                 conversation_profile=args.conversation_profile,
                 source_chapters=chapters,
             ),

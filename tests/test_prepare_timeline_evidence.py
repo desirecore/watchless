@@ -29,10 +29,6 @@ def test_chaptered_conversation_writes_non_binding_chapter_hints(tmp_path, monke
     packed.write_text("packed", encoding="utf-8")
     transcript_json = tmp_path / "words.json"
     transcript_json.write_text("{}", encoding="utf-8")
-    video_use = tmp_path / "video-use"
-    helper = video_use / "helpers" / "timeline_view.py"
-    helper.parent.mkdir(parents=True)
-    helper.write_text("# fixture\n", encoding="utf-8")
     monkeypatch.setattr(module, "probe_video", lambda _: {"duration_sec": 10.0})
 
     evidence = module.prepare_timeline(
@@ -42,11 +38,11 @@ def test_chaptered_conversation_writes_non_binding_chapter_hints(tmp_path, monke
         tmp_path / "work",
         packed_transcript=packed,
         transcript_json=transcript_json,
-        video_use_dir=video_use,
         conversation_profile="chaptered",
         source_chapters=[{"start_sec": 0.0, "end_sec": 10.0, "title": "主题一"}],
     )
 
+    assert Path(evidence["timeline_view"]) == ROOT / "scripts/vendor/video-use/helpers/timeline_view.py"
     assert evidence["chapter_count"] == 1
     assert Path(evidence["chapter_hints"]).is_file()
     worksheet = Path(evidence["worksheet"]).read_text(encoding="utf-8")

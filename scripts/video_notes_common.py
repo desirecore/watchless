@@ -7,6 +7,7 @@ import hashlib
 import html
 import json
 import re
+import shutil
 import subprocess
 import unicodedata
 from pathlib import Path
@@ -23,6 +24,24 @@ INLINE_SECONDS_RE = re.compile(
 SRT_TIME_RE = re.compile(
     r"(\d{2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{3})"
 )
+
+
+VIDEO_USE_HELPERS = Path(__file__).resolve().parent / "vendor" / "video-use" / "helpers"
+
+
+def require_commands(*commands: str) -> None:
+    missing = [command for command in commands if shutil.which(command) is None]
+    if missing:
+        raise RuntimeError("Missing required commands: " + ", ".join(missing))
+
+
+def require_cloud_upload(confirmed: bool, provider: str) -> None:
+    if not confirmed:
+        raise RuntimeError(
+            f"{provider} sends audio to a third-party service and may charge for transcription. "
+            "Obtain the user's consent for this source and provider before passing --confirm-cloud-upload, "
+            "or choose an offline transcription path."
+        )
 
 
 def extract_video_id(value: str) -> str | None:

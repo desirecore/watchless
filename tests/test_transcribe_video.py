@@ -47,7 +47,7 @@ class DirectUploadTests(unittest.TestCase):
             transcriber = self.module.AudioTranscriber(api_key="test-api-key")
 
             with patch.object(self.module.requests, "post", return_value=FakeResponse()) as post:
-                result = transcriber.recognize_audio(audio.name, lang="zh-CN")
+                result = transcriber.recognize_audio(audio.name, lang="zh-CN", confirm_cloud_upload=True)
 
         self.assertEqual(result["result"]["text"], "hello")
         _, kwargs = post.call_args
@@ -61,6 +61,13 @@ class DirectUploadTests(unittest.TestCase):
             "volc.bigasr.auc_turbo",
         )
         self.assertTrue(post.call_args.args[0].endswith("/api/v3/auc/bigmodel/recognize/flash"))
+
+    def test_volcengine_requires_confirmation_before_upload(self):
+        transcriber = self.module.AudioTranscriber(api_key="test-api-key")
+        with patch.object(self.module.requests, "post") as post:
+            with self.assertRaisesRegex(RuntimeError, "--confirm-cloud-upload"):
+                transcriber.recognize_audio("never-opened.mp3")
+            post.assert_not_called()
 
     def test_source_has_no_cloudflare_or_boto_dependency(self):
         source = SCRIPT_PATH.read_text(encoding="utf-8")
@@ -76,7 +83,7 @@ class DirectUploadTests(unittest.TestCase):
                 patch.object(self.module.requests, "post") as post,
             ):
                 with self.assertRaisesRegex(ValueError, "2 hours"):
-                    transcriber.recognize_audio(audio.name)
+                    transcriber.recognize_audio(audio.name, confirm_cloud_upload=True)
             post.assert_not_called()
 
     def test_auto_provider_selects_tencent_even_with_volcengine_key(self):

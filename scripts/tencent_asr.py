@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import time
 
+from video_notes_common import require_cloud_upload
+
 
 def credentials():
     sid, key = os.getenv('TENCENTCLOUD_SECRET_ID'), os.getenv('TENCENTCLOUD_SECRET_KEY')
@@ -67,7 +69,10 @@ class TencentTranscriber:
             # Error codes suffice; do not log request bodies, signed URLs or credentials.
             raise RuntimeError(f'Tencent ASR {action} failed: {exc.get_code()}') from None
 
-    def recognize_audio(self, audio_path, lang='zh-CN', punctuation=True, show_utterances=True):
+    def recognize_audio(
+        self, audio_path, lang='zh-CN', punctuation=True, show_utterances=True, *, confirm_cloud_upload=False
+    ):
+        require_cloud_upload(confirm_cloud_upload, "Tencent Cloud ASR")
         path = Path(audio_path)
         digest = hashlib.sha256()
         with path.open('rb') as source:

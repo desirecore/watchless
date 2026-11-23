@@ -107,8 +107,10 @@ Watchless 将一条视频处理成一套可复核、可分享的内容资产：
 
 ## 安装
 
+这是 DesireCore 维护的 [chenzixin1/watchless](https://github.com/chenzixin1/watchless) fork。DesireCore 市场安装技能文件。首次运行前准备以下运行依赖。
+
 ```bash
-git clone https://github.com/chenzixin1/watchless.git
+git clone --branch desirecore https://github.com/desirecore/watchless.git
 cd watchless
 
 python3 -m venv .venv
@@ -120,8 +122,11 @@ python3 -m venv .venv
 
 - `ffmpeg` 和 `ffprobe`
 - `yt-dlp`
-- Google Chrome，用于 HTML 转 PDF
-- 本机可访问的 `video-use` Skill，用于转录打包和局部时间线检查
+- Python 3.10+
+- macOS 下完成 HTML/PDF/ZIP 输出需 Pandoc、Poppler（`pdftoppm`），以及装在 `/Applications` 下的 Chrome 或 Chromium
+- YouTube 输入还需要 Node.js
+
+转录打包和时间线辅助脚本已随 fork 提供。见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 本地 Whisper 只作为显式回退，不会静默替换腾讯云 ASR：
 
@@ -154,9 +159,9 @@ ln -sfn "$(pwd)" "$HOME/.codex/skills/watchless"
 
 ### 私人使用与法律边界
 
-- Chrome Cookie 只允许程序从本机浏览器配置临时读取，不得导出、打印、上传或提交。
+- 浏览器 Cookie 默认关闭。用户明确同意后，可用 `--cookies-from-browser chrome` 在需要登录时重试。不得导出、打印、上传或提交 Cookie。
 - 不得使用本项目绕过 DRM、付费墙、会员限制、私人访问、地区限制、验证码或其他访问控制。
-- 默认腾讯云 ASR 会把音频发送给第三方服务；保密或敏感内容必须先确认授权，必要时显式改用本地 Whisper。
+- 腾讯云或火山引擎 ASR 会把音频发送给第三方服务，并可能单独计费。只有用户同意本次音频和服务商后，才可加上 `--confirm-cloud-upload`。离线处理可使用已有字幕或本地 Whisper。
 - 说话人名称必须有可靠公开证据，无法确认时保留 `说话人N`，不得进行人脸或声纹生物识别。
 - 公开发布或商业使用前必须另行核对平台条款、版权、隐私、保密和署名要求。
 
@@ -171,8 +176,10 @@ ln -sfn "$(pwd)" "$HOME/.codex/skills/watchless"
 ```bash
 .venv/bin/python scripts/00_build_video_notes.py \
   "https://www.youtube.com/watch?v=VIDEO_ID" \
-  --stage prepare
+  --stage prepare --use-source-subtitles
 ```
+
+此示例使用已有字幕。用户同意腾讯云转写后，可用 `--provider tencent --confirm-cloud-upload` 替换字幕参数。
 
 命令会打印 `PROJECT_DIR`，并生成：
 

@@ -1,6 +1,8 @@
 ---
 name: watchless
 description: Use when turning a YouTube URL or local presentation, explainer, interview, podcast, or product-demo video into complete screenshot-led notes, faithful light-polished text, HTML, PDF, or a shareable ZIP.
+requires:
+  bins: [python3, ffmpeg, ffprobe, pandoc, pdftoppm]
 ---
 
 # Watchless
@@ -9,11 +11,25 @@ description: Use when turning a YouTube URL or local presentation, explainer, in
 
 Turn one video into a complete visual article. The transcript is the factual source; screenshots preserve the visual evidence. The reader should not need to watch the original video.
 
+## Setup
+
+DesireCore maintains this fork of [chenzixin1/watchless](https://github.com/chenzixin1/watchless). The market installs the skill files. The full workflow requires macOS, Python 3.10+, ffmpeg/ffprobe, Pandoc, Poppler (`pdftoppm`), and Chrome or Chromium in `/Applications`. YouTube input also requires yt-dlp and Node.js. Check the dependencies for the chosen input and output before processing media.
+
+Set `SKILL_DIR` to the installed skill directory. Keep the Python environment outside the skill so updates can replace the installed files cleanly:
+
+```bash
+python3 -m venv "$HOME/.cache/watchless/venv"
+WATCHLESS_PYTHON="$HOME/.cache/watchless/venv/bin/python"
+"$WATCHLESS_PYTHON" -m pip install -r "$SKILL_DIR/scripts/requirements.txt"
+```
+
+The two timeline helpers ship with this skill. For offline transcription, install `scripts/requirements-whisper.txt` in the same environment and provision the Whisper model. For cloud transcription, configure credentials outside the skill. Tencent Cloud or Volcengine needs a separate account, service access, and billing.
+
 ## Hard Requirements
 
 - Run locally. Do not call PodSum, its website, MCP, Cloudflare, APIFY, D1, or R2.
 - Keep the source immutable and reuse cached downloads and transcripts.
-- Use Tencent Cloud word-level ASR with speaker diarization by default (`--provider tencent`; `auto` also selects Tencent). Never automatically fall back to Volcengine; select other providers explicitly. Do not silently replace it with YouTube automatic captions or local Whisper.
+- Use Tencent Cloud word-level ASR with speaker diarization when the user selects Tencent (`--provider tencent`; `auto` also selects Tencent). Never automatically fall back to Volcengine; select other providers explicitly. Do not silently replace it with YouTube automatic captions or local Whisper.
 - Keep the output chronological and complete. Light-plus is not a summary: preserve reasoning, examples, figures, caveats, disagreement, questions, answers, and repeated emphasis.
 - Show process images during the run: whole-video route overview, boundary evidence where applicable, candidate frames, selected frames, and PDF page overview.
 - Use no OpenCV anywhere in this Skill.
@@ -27,9 +43,9 @@ Turn one video into a complete visual article. The transcript is the factual sou
 Before acquiring a remote source, confirm that the user owns the content, has permission to process it, or has independently established another lawful basis. If authorization is unclear, stop and request an authorized local file instead of downloading.
 
 - This repository and its outputs are private by default. Do not publish or distribute generated notes without a separate rights, privacy, confidentiality, and attribution review.
-- Chrome browser cookies may be read only from the user's local browser profile. Never export, print, copy, upload, log, or commit cookie values. Cookie access does not establish a right to download or reuse content.
+- Browser cookies are off by default. Ask before using the local browser profile and pass `--cookies-from-browser chrome` only after the user explicitly agrees. Never export, print, copy, upload, log, or commit cookie values. Cookie access does not establish a right to download or reuse content.
 - Never use this Skill to bypass DRM, paywalls, members-only access, private-video access, geographic restrictions, CAPTCHAs, account enforcement, or other access controls.
-- Before sending non-public or sensitive audio to the selected cloud ASR provider, confirm that the user is authorized to make that third-party transfer. Use explicitly requested local Whisper or stop when authorization is unavailable.
+- Before any cloud transcription, name the provider, explain that it receives the source audio and may charge separately, and ask for the user’s approval. Pass `--confirm-cloud-upload` only after approval for this source and provider. If authorization is unavailable, use supplied subtitles, explicitly requested local Whisper, or stop.
 - Resolve speaker names only from explicit public metadata, self-introduction, lower thirds, or similarly reliable evidence. Do not perform face or voice biometric identification. Keep `Speaker N` when uncertain and require human review before external use.
 - Use the minimum screenshots and quotations needed for any approved external use. Do not publish a complete transcript or visual reconstruction that substitutes for the source without a separate legal review.
 
@@ -82,15 +98,17 @@ Set `SKILL_DIR` to this Skill directory. Run commands from the workspace where `
 ### 1. Acquire, transcribe, and inspect the whole video
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" "$SOURCE" --stage prepare
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" "$SOURCE" --stage prepare --use-source-subtitles
 ```
+
+The example uses existing subtitles. For local Whisper, replace `--use-source-subtitles` with `--provider whisper`. For approved cloud transcription, use `--provider tencent --confirm-cloud-upload` or the corresponding explicit Volcengine option.
 
 Read `PROJECT_DIR` from output. Display `verify/mode-overview.jpg`, inspect the transcript and source metadata, and decide the route from observable structure.
 
 ### 2. Confirm route and visual strategies
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage route --project-dir "$PROJECT_DIR" \
   --mode explainer \
   --visual-strategy dense-visual \
@@ -103,7 +121,7 @@ Later stages may use `--mode auto`; they read the confirmed `work/route-decision
 For a Bloomberg-style news interview:
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage route --project-dir "$PROJECT_DIR" \
   --mode conversation --conversation-profile news \
   --visual-strategy speaker --visual-strategy evidence \
@@ -115,7 +133,7 @@ For a Bloomberg-style news interview:
 Slides do not use semantic timeline boundaries. If the slide occupies only part of the frame, directly inspect the overview and pass a relative crop rectangle.
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage scenes --project-dir "$PROJECT_DIR" --mode auto \
   --slide-rect "0.04,0.08,0.72,0.92"
 ```
@@ -129,11 +147,11 @@ Display `verify/selected-keyframes.jpg`. Confirm that frames are complete slides
 Prepare an audio-first semantic review:
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage timeline --project-dir "$PROJECT_DIR" --mode auto
 ```
 
-Read `work/video-use/takes_packed.md` and `work/timeline/boundary-review.md`. Propose boundaries only at complete phrases and semantic transitions. For each real decision point `T`, inspect approximately `T-4s` to `T+4s` with `video-use/helpers/timeline_view.py`; do not scan the full video at fixed intervals.
+Read `work/video-use/takes_packed.md` and `work/timeline/boundary-review.md`. Propose boundaries only at complete phrases and semantic transitions. For each real decision point `T`, inspect approximately `T-4s` to `T+4s` with the `timeline_view` path from `work/timeline/timeline-evidence.json`; do not scan the full video at fixed intervals.
 
 When official chapters exist, the timeline stage writes `work/timeline/chapter-hints.json`. Treat chapters only as coarse topic proposals: merge or split them to preserve complete questions, answers, examples, and qualifications.
 
@@ -146,7 +164,7 @@ Write `work/timeline/scene-boundaries.json`:
 The final boundary must cover the final transcript phrase. Then build scenes:
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage scenes --project-dir "$PROJECT_DIR" --mode auto \
   --boundaries "$PROJECT_DIR/work/timeline/scene-boundaries.json"
 ```
@@ -160,7 +178,7 @@ For `edited` and `news` conversations, the scene builder also looks for spoken r
 If default candidates are suitable:
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage select --project-dir "$PROJECT_DIR"
 ```
 
@@ -181,7 +199,7 @@ Record `display_name`, role, confidence, and evidence. `high` requires explicit 
 ### 6. Write complete scene notes
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage batches --project-dir "$PROJECT_DIR"
 ```
 
@@ -190,7 +208,7 @@ Inspect every referenced image and transcript. Write each requested `work/codex-
 If the runtime reports actual model usage, append it after each model-heavy phase. Pass current explicit rates only when cost should be calculated:
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage usage --project-dir "$PROJECT_DIR" \
   --usage-stage notes --model-name "$MODEL" \
   --input-tokens "$INPUT_TOKENS" --output-tokens "$OUTPUT_TOKENS" \
@@ -203,7 +221,7 @@ If the runtime reports actual model usage, append it after each model-heavy phas
 ### 7. Build and verify outputs
 
 ```bash
-"$SKILL_DIR/.venv/bin/python" "$SKILL_DIR/scripts/00_build_video_notes.py" \
+"$WATCHLESS_PYTHON" "$SKILL_DIR/scripts/00_build_video_notes.py" \
   --stage finalize --project-dir "$PROJECT_DIR"
 ```
 
@@ -211,7 +229,7 @@ Finalize automatically writes `verify/quality-audit.json` and `verify/quality-au
 
 ## Fallbacks
 
-After the compliance gate is satisfied, try anonymous `yt-dlp`, then local Chrome browser cookies without exporting them. Do not use the cookie fallback to defeat access controls. Volcengine credentials may be discovered from the environment, `scripts/config.py`, or `WATCHLESS_VOLCENGINE_CONFIG`; never print or copy credential values. Use source/manual subtitles only with `--use-source-subtitles`. Use local Whisper only when explicitly requested with `--provider whisper`. If acquisition still fails, report the classified error and request an authorized local video.
+After the compliance gate is satisfied, try anonymous `yt-dlp`. Browser cookies are retried only on a login-required error and after explicit opt-in. Do not use the cookie fallback to defeat access controls. Volcengine credentials may be discovered from the environment, `scripts/config.py`, or `WATCHLESS_VOLCENGINE_CONFIG`; never print or copy credential values. Use source/manual subtitles only with `--use-source-subtitles`. Use local Whisper only when explicitly requested with `--provider whisper`. If acquisition still fails, report the classified error and request an authorized local video.
 
 Stages are idempotent and resumable. `--target-seconds` is an explicit legacy fallback for non-slide modes, never the normal segmentation method.
 

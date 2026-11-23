@@ -15,6 +15,13 @@ class TencentTests(unittest.TestCase):
         self.assertEqual(result['speaker'], 'part1_0')
         self.assertEqual(normalize(details)[0]['speaker'], 0)
 
+    def test_tencent_requires_confirmation_before_upload(self):
+        transcriber = TencentTranscriber.__new__(TencentTranscriber)
+        transcriber.call = Mock()
+        with self.assertRaisesRegex(RuntimeError, "--confirm-cloud-upload"):
+            transcriber.recognize_audio("never-opened.mp3")
+        transcriber.call.assert_not_called()
+
     def test_sdk_errors_do_not_disclose_message(self):
         from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException
         from tencentcloud.asr.v20190614 import models

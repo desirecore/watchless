@@ -9,6 +9,9 @@ progress, and visual self-review concepts are informed by:
 - License: MIT
 - Copyright: Browser Use, 2026
 
-Watchless expects a local `video-use` checkout for transcript packing and
-on-demand timeline inspection. It does not copy `video-use` source code into
-this repository.
+This fork ships copies of `helpers/pack_transcripts.py` and
+`helpers/timeline_view.py` from [video-use commit
+`43cfc566833548093455c9d4a46bd69913b7e552`](https://github.com/browser-use/video-use/tree/43cfc566833548093455c9d4a46bd69913b7e552/helpers).
+The timeline helper samples inside the requested interval to avoid seeking past the final frame.
+The full MIT license and copyright notice are in
+[`scripts/vendor/video-use/LICENSE`](scripts/vendor/video-use/LICENSE).
